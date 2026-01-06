@@ -1,0 +1,236 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="theme-color" content="#0a0014"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/>
+  <title>Motorista | {{ app_name }}</title>
+  <link rel="manifest" href="/static/manifest-motorista.json">
+  <link rel="icon" href="/static/icons/icon-192x192.png">
+  <link rel="stylesheet" href="/static/style.css"/>
+  <style>
+    /* garantir legibilidade do select/option em todos os browsers */
+    select, option { color:#fff; background:#120016; }
+    option { background:#16002b; }
+    .top-actions button{min-width:120px}
+    .pill{display:inline-flex;gap:.5rem;align-items:center;padding:.45rem .8rem;border-radius:999px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.08)}
+    .contacts{margin-top:10px}
+    .contacts ul{margin:8px 0 0 18px}
+    .contacts li{margin:6px 0}
+    .sos{
+      width:220px;height:220px;border-radius:50%;
+      display:grid;place-items:center;
+      font-size:54px;font-weight:800;letter-spacing:2px;
+      border:none; cursor:pointer;
+      box-shadow: 0 22px 60px rgba(0,0,0,.55);
+      background: radial-gradient(circle at 30% 30%, #ff78df, #b84bff 60%, #5e2a86);
+      color:#fff;
+      transition: transform .08s ease;
+    }
+    .sos:active{transform:scale(.98)}
+    .hint{opacity:.9}
+    .warn{opacity:.85;font-size:.95rem}
+
+    /* Ocorrências visíveis (mais rápido em situação de risco) */
+    .occ-grid{
+      display:grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap:10px;
+      margin-top:10px;
+    }
+    .occ-btn{
+      width:100%;
+      text-align:left;
+      padding:12px 14px;
+      border-radius:14px;
+      border:1px solid rgba(255,255,255,.12);
+      background:rgba(255,255,255,.06);
+      color:var(--text);
+      cursor:pointer;
+      transition: transform .08s ease, background .2s ease, border-color .2s ease;
+      font-weight:650;
+    }
+    .occ-btn:hover{ background:rgba(255,255,255,.10); }
+    .occ-btn:active{ transform:scale(.99); }
+    .occ-btn.active{
+      background:rgba(255,79,200,.18);
+      border-color:rgba(255,79,200,.45);
+      box-shadow:0 0 0 3px rgba(255,79,200,.14);
+    }
+    .occ-note{opacity:.8;font-size:.9rem;margin-top:6px}
+    .sr-only{position:absolute;left:-10000px;top:auto;width:1px;height:1px;overflow:hidden;}
+  </style>
+</head>
+<body class="aurora-bg">
+  <div class="wrap">
+    <header class="topbar">
+      <div>
+        <h1>🚗 Painel do Motorista</h1>
+        <p class="hint">Toque em <strong>SOS</strong> para pedir ajuda com rapidez.</p>
+      </div>
+
+      <div class="top-actions">
+        <button class="btn" id="btnFull">⛶ Tela cheia</button>
+        <button class="btn" id="btnReload">↻ Reiniciar</button>
+        <button class="btn btn-danger" id="btnClear">🧹 Limpar alertas</button>
+        </div>
+    </header>
+
+    <main class="grid">
+      <section class="card">
+        <h2>Configuração rápida</h2>
+
+        <label class="label">Tipo de ocorrência (toque em 1 opção)</label>
+        <!-- Mantém o select como fallback (invisível) -->
+        <select id="occurrence" aria-hidden="true" tabindex="-1" style="display:none">
+          {% for o in occurrences %}
+            <option value="{{o}}" {% if loop.index0==0 %}selected{% endif %}>{{o}}</option>
+          {% endfor %}
+        </select>
+
+        <!-- Opções visíveis (mais rápido) -->
+        <div class="occ-grid" id="occGrid">
+          {% for o in occurrences %}
+            <button type="button" class="btn occ-btn {% if loop.index0==0 %}occ-active{% endif %}" data-occ="{{o}}">{{o}}</button>
+          {% endfor %}
+        </div>
+
+        <label class="label">Seu nome (opcional)</label>
+        <input id="driverName" placeholder="Ex: João (Uber)" />
+
+        <div class="contacts">
+          <div class="pill">👥 Pessoas de confiança cadastradas</div>
+          {% if contacts and contacts|length > 0 %}
+            <ul>
+              {% for c in contacts %}
+                <li><strong>{{c.name}}</strong> — {{c.phone}}</li>
+              {% endfor %}
+            </ul>
+          {% else %}
+            <p class="warn">Nenhuma pessoa cadastrada. Vá em <strong>/cadastro</strong> e cadastre até 3 contatos.</p>
+          {% endif %}
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>Botão de Pânico</h2>
+
+        <div class="center">
+          <button class="sos" id="btnSOS">SOS</button>
+        </div>
+
+        <p class="hint">Clique em <strong>SOS</strong> para enviar alerta com localização e ocorrência.</p>
+        <p class="warn">⚠️ A sirene toca <strong>somente</strong> no painel da pessoa de confiança.</p>
+
+        <div class="hr"></div>
+
+        <div>
+          <h3>Localização</h3>
+          <div id="locText" class="muted">Permita o acesso à localização no navegador/celular.</div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+<script>
+  // PWA
+  if ('serviceWorker' in navigator) { navigator.serviceWorker.register('/service-worker.js').catch(()=>{}); }
+
+  const locText = document.getElementById('locText');
+  let lastLoc = null;
+
+  function getLocationOnce() {
+    if (!navigator.geolocation) return;
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        lastLoc = {
+          lat: +pos.coords.latitude.toFixed(6),
+          lng: +pos.coords.longitude.toFixed(6),
+          accuracy: Math.round(pos.coords.accuracy || 0)
+        };
+        locText.textContent = `Lat: ${lastLoc.lat} | Lng: ${lastLoc.lng} (precisão ~${lastLoc.accuracy}m)`;
+      },
+      () => { locText.textContent = 'Permita o acesso à localização no navegador/celular.'; },
+      { enableHighAccuracy:true, timeout:8000, maximumAge:10000 }
+    );
+  }
+  getLocationOnce();
+
+  // Ocorrências em botões (rápido, sem abrir dropdown)
+  const occSelect = document.getElementById('occurrence');
+  const occBtns = Array.from(document.querySelectorAll('.occ-btn'));
+  function setOccurrence(val){
+    if (occSelect) occSelect.value = val;
+    occBtns.forEach(b => b.classList.toggle('occ-active', b.dataset.occ === val));
+  }
+  if (occBtns.length) {
+    // valor inicial
+    const initial = (occSelect && occSelect.value) ? occSelect.value : occBtns[0].dataset.occ;
+    setOccurrence(initial);
+    occBtns.forEach(b => b.addEventListener('click', ()=>setOccurrence(b.dataset.occ)));
+  }
+
+  async function sendSOS() {
+    const btnSOS = document.getElementById('btnSOS');
+    if(btnSOS?.dataset?.sending === '1') return;
+    btnSOS.dataset.sending = '1';
+    btnSOS.classList.add('sending');
+    btnSOS.disabled = true;
+    const originalText = btnSOS.textContent;
+    btnSOS.textContent = 'ENVIANDO';
+
+    const occurrence = (document.getElementById('occurrence')?.value) || 'Abordagem suspeita';
+    const driverName = document.getElementById('driverName').value || '';
+
+    // tenta atualizar a localização rapidinho antes do envio
+    try { await new Promise((res)=>{ 
+      if(!navigator.geolocation){res();return;}
+      navigator.geolocation.getCurrentPosition((pos)=>{
+        lastLoc = {
+          lat: +pos.coords.latitude.toFixed(6),
+          lng: +pos.coords.longitude.toFixed(6),
+          accuracy: Math.round(pos.coords.accuracy || 0)
+        };
+        locText.textContent = `Lat: ${lastLoc.lat} | Lng: ${lastLoc.lng} (precisão ~${lastLoc.accuracy}m)`;
+        res();
+      }, ()=>res(), { enableHighAccuracy:true, timeout:5000, maximumAge:0 });
+    }); } catch(e){}
+
+    const payload = {
+      occurrence,
+      driver_name: driverName,
+      lat: lastLoc ? lastLoc.lat : null,
+      lng: lastLoc ? lastLoc.lng : null,
+      accuracy: lastLoc ? lastLoc.accuracy : null,
+    };
+
+    const r = await fetch('/api/alert', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify(payload)
+    });
+
+    if (r.ok) {
+      const btn = document.getElementById('btnSOS');
+      btn.textContent = 'ENVIADO';
+      setTimeout(()=>btn.textContent='SOS', 1200);
+    } else {
+      alert('Não foi possível enviar o alerta. Tente novamente.');
+    }
+  }
+
+  document.getElementById('btnSOS').addEventListener('click', sendSOS);
+
+  document.getElementById('btnFull').addEventListener('click', ()=>{
+    const el = document.documentElement;
+    if (!document.fullscreenElement) el.requestFullscreen?.();
+    else document.exitFullscreen?.();
+  });
+  document.getElementById('btnReload').addEventListener('click', ()=>location.reload());
+  document.getElementById('btnClear').addEventListener('click', async ()=>{
+    await fetch('/api/alerts', {method:'DELETE'});
+    alert('Alertas limpos.');
+  });
+</script>
+</body>
+</html>

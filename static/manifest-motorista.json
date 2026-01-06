@@ -1,0 +1,23 @@
+{
+  "name": "VYRA • Motorista",
+  "short_name": "VYRA Motorista",
+  "start_url": "/motorista",
+  "display": "standalone",
+  "background_color": "#0a0014",
+  "theme_color": "#0a0014",
+  "icons": [
+    {
+      "src": "/static/icons/icon-192x192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "/static/icons/icon-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ],
+  "description": "Botão de pânico para motoristas com painel da pessoa de confiança (VYRA).",
+  "scope": "/",
+  "id": "/motorista"
+}

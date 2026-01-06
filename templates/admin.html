@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/>
+  <title>Admin | VYRA</title>
+  <link rel="stylesheet" href="/static/style.css"/>
+</head>
+<body>
+  <div class="topbar">
+    <div class="brand">
+      <div class="logo-dot"></div>
+      <div>
+        <div class="brand-title">🧠 Central / Admin</div>
+        <div class="brand-sub">Monitoramento e gestão de alertas (VYRA)</div>
+      </div>
+    </div>
+
+    <div class="actions">
+      <button class="btn ghost" id="btnFull">⛶ Tela cheia</button>
+      <button class="btn ghost" id="btnRefresh">↻ Atualizar</button>
+      <button class="btn danger" id="btnClear">🧹 Limpar alertas</button>
+    </div>
+  </div>
+
+  <div class="container">
+    <div class="grid">
+      <section class="card">
+        <h2>Resumo</h2>
+        <div class="stats">
+          <div class="stat"><div class="k">Abertos</div><div class="v" id="sOpen">0</div></div>
+          <div class="stat"><div class="k">Em atendimento</div><div class="v" id="sAck">0</div></div>
+          <div class="stat"><div class="k">Encerrados</div><div class="v" id="sClosed">0</div></div>
+          <div class="stat"><div class="k">Contatos</div><div class="v" id="sContacts">0</div></div>
+        </div>
+        <p class="muted" style="margin-top:10px">Este painel não redireciona para outros painéis. É só monitoramento e controle.</p>
+      </section>
+
+      <section class="card">
+        <h2>Pessoas cadastradas</h2>
+        <div id="contactsList" class="list muted">Carregando...</div>
+      </section>
+    </div>
+
+    <section class="card" style="margin-top:14px">
+      <h2>Alertas (tempo real)</h2>
+      <div class="muted">Atualiza automaticamente a cada 2s.</div>
+      <div id="alertsList" class="alerts"></div>
+    </section>
+  </div>
+
+<script>
+const $ = (id)=>document.getElementById(id);
+
+function fmt(s){
+  try{ return new Date(s).toLocaleString('pt-BR'); }catch(e){ return s||''; }
+}
+
+async function api(url, opts){
+  const r = await fetch(url, opts||{});
+  if(!r.ok) throw new Error('HTTP '+r.status);
+  return await r.json();
+}
+
+async function loadContacts(){
+  const js = await api('/api/contacts');
+  const contacts = js.contacts || [];
+  $('sContacts').textContent = String(contacts.length);
+  if(!contacts.length){
+    $('contactsList').innerHTML = '<div class="muted">Nenhuma pessoa cadastrada ainda.</div>';
+    return;
+  }
+  $('contactsList').innerHTML = contacts.map(c=>{
+    const n = (c.name||'').trim() || 'Sem nome';
+    const t = (c.type||'').trim() || 'Contato';
+    const p = (c.phone||'').trim();
+    return `<div class="pill-row">
+      <span class="badge">${t}</span>
+      <span class="pill-name">${n}</span>
+      <span class="pill-sub">${p ? '📞 '+p : ''}</span>
+    </div>`;
+  }).join('');
+}
+
+function badge(status){
+  if(status==='open') return '<span class="tag tag-open">ABERTO</span>';
+  if(status==='ack') return '<span class="tag tag-ack">ATENDIMENTO</span>';
+  return '<span class="tag tag-closed">ENCERRADO</span>';
+}
+
+async function setStatus(id, status){
+  await api('/api/alert/ack', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({id, status})});
+  await loadAlerts();
+}
+
+async function clearAlerts(){
+  await fetch('/api/alerts', {method:'DELETE'});
+  await loadAlerts();
+}
+
+async function loadAlerts(){
+  const js = await api('/api/alerts');
+  const alerts = js.alerts || [];
+  const open = alerts.filter(a=>a.status==='open').length;
+  const ack = alerts.filter(a=>a.status==='ack').length;
+  const closed = alerts.filter(a=>a.status==='closed').length;
+  $('sOpen').textContent = String(open);
+  $('sAck').textContent = String(ack);
+  $('sClosed').textContent = String(closed);
+
+  const box = $('alertsList');
+  if(!alerts.length){
+    box.innerHTML = '<div class="muted" style="padding:10px">Nenhum alerta ainda.</div>';
+    return;
+  }
+  box.innerHTML = alerts.slice().reverse().map(a=>{
+    const id = a.id;
+    const kind = a.kind || a.occurrence || 'Ocorrência';
+    const who = a.driver_name || a.name || '';
+    const note = a.note || '';
+    const ts = a.ts || a.created_at || a.createdAt || '';
+    return `<div class="alert">
+      <div class="alert-top">
+        <div class="alert-title">${badge(a.status||'open')} <b>${kind}</b> <span class="muted">#${id}</span></div>
+        <div class="muted">${fmt(ts)}</div>
+      </div>
+      <div class="muted">${who ? '👤 '+who : ''} ${note ? ' • 📝 '+note : ''}</div>
+      <div class="alert-actions">
+        <button class="btn ok" onclick="setStatus('${id}','ack')">Confirmar</button>
+        <button class="btn ghost" onclick="setStatus('${id}','closed')">Encerrar</button>
+        <button class="btn ghost" onclick="setStatus('${id}','open')">Reabrir</button>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function fullscreen(){
+  const el = document.documentElement;
+  if(!document.fullscreenElement) el.requestFullscreen().catch(()=>{});
+  else document.exitFullscreen().catch(()=>{});
+}
+
+$('btnFull').onclick = fullscreen;
+$('btnRefresh').onclick = async ()=>{ await loadContacts(); await loadAlerts(); };
+$('btnClear').onclick = ()=>{ if(confirm('Limpar TODOS os alertas?')) clearAlerts(); };
+
+setInterval(()=>{ loadAlerts().catch(()=>{}); }, 2000);
+
+(async()=>{
+  await loadContacts().catch(()=>{ $('contactsList').textContent='Erro ao carregar.'; });
+  await loadAlerts().catch(()=>{ $('alertsList').textContent='Erro ao carregar.'; });
+})();
+</script>
+</body>
+</html>

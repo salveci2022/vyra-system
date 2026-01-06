@@ -1,0 +1,174 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="theme-color" content="#0a0014"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/>
+  <title>Pessoa de Confiança | {{ app_name }}</title>
+  <link rel="manifest" href="/static/manifest-confianca.json">
+  <link rel="icon" href="/static/icons/icon-192x192.png">
+  <link rel="stylesheet" href="/static/style.css"/>
+  <style>
+    .siren-dot{display:inline-block;width:10px;height:10px;border-radius:50%;background:#ff4fc8;box-shadow:0 0 18px rgba(255,79,200,.9)}
+    .alerts{max-height:520px;overflow:auto;padding-right:6px}
+    .alert{padding:14px;border-radius:16px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.08);margin:10px 0}
+    .alert .meta{opacity:.85;font-size:.95rem}
+    .alert .big{font-size:1.2rem;font-weight:800}
+    .mono{font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;}
+  </style>
+</head>
+<body class="aurora-bg">
+  <div class="wrap">
+    <header class="topbar">
+      <div>
+        <h1>🛡️ Painel da Pessoa de Confiança <span class="siren-dot" title="sirene ativa"></span></h1>
+        <p class="hint">Este painel fica sempre aberto (sem senha) para agir rápido.</p>
+      </div>
+
+      <div class="top-actions">
+        <button class="btn" id="btnFull">⛶ Tela cheia</button>
+        <button class="btn" id="btnReload">↻ Reiniciar</button>
+        <button class="btn btn-danger" id="btnClear">🧹 Limpar alertas</button>
+        </div>
+    </header>
+
+    <main class="grid" style="grid-template-columns:1fr .9fr">
+      <section class="card">
+        <h2>Alertas (tempo real)</h2>
+        <div class="alerts" id="alerts"></div>
+        <div class="mini">Dica: deixe em <strong>tela cheia</strong> e com o som do celular ligado.</div>
+      </section>
+
+      <section class="card">
+        <h2>Ações rápidas</h2>
+        <div class="pill">🔊 Sirene: <strong>somente aqui</strong></div>
+        <div class="hr"></div>
+        <p class="mini">Quando chegar um alerta novo, a sirene toca automaticamente.</p>
+
+        <div class="hr"></div>
+        <p class="mini mono" id="lastPing">Aguardando…</p>
+      </section>
+    </main>
+  </div>
+
+<audio id="siren" src="/static/sirene.mp3" preload="auto"></audio>
+
+<script>
+  // PWA
+  if ('serviceWorker' in navigator) { navigator.serviceWorker.register('/service-worker.js').catch(()=>{}); }
+
+  const siren = document.getElementById('siren');
+  const alertsBox = document.getElementById('alerts');
+  const lastPing = document.getElementById('lastPing');
+
+  let lastCount = 0;
+  let lastHash = '';
+
+  function hashAlert(a){
+    return (a.ts||'')+'|'+(a.occurrence||'')+'|'+(a.driver_name||'')+'|'+(a.lat||'')+'|'+(a.lng||'');
+  }
+
+  function render(alerts){
+    alertsBox.innerHTML = '';
+    const reversed = [...alerts].slice().reverse();
+    reversed.forEach(a=>{
+      const div = document.createElement('div');
+      div.className = 'alert';
+      const status = (a.status || 'open');
+      const coords = (a.lat!=null && a.lng!=null) ? `${a.lat}, ${a.lng} (±${a.accuracy||0}m)` : 'Sem localização';
+      div.innerHTML = `
+        <div class="big">🚨 ${a.occurrence || 'Alerta'}</div>
+        <div class="meta">👤 Motorista: <strong>${(a.driver_name||'—')}</strong></div>
+        <div class="meta">🕒 ${a.ts || ''}</div>
+        <div class="meta">📍 ${coords}</div>
+        <div class="hr"></div>
+        <div class="row">
+          <button class="btn ok" onclick="ackAlert(${a.id || 0}, 'ack')">Confirmar atendimento</button>
+          <button class="btn" onclick="ackAlert(${a.id || 0}, 'closed')">Encerrar</button>
+        </div>
+        <div class="mini mono">Status: <strong>${status.toUpperCase()}</strong></div>
+      `;
+      alertsBox.appendChild(div);
+    });
+  }
+
+
+  async function ackAlert(id, status){
+    try{
+      await fetch('/api/alert/ack', {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({id, status})
+      });
+      await poll();
+    }catch(e){ console.log(e); }
+  }
+
+  function hasOpen(alerts){
+    return (alerts || []).some(a => (a.status || 'open') === 'open');
+  }
+
+  async function poll(){
+    try{
+      const r = await fetch('/api/alerts', {cache:'no-store'});
+      const j = await r.json();
+      const alerts = j.alerts || [];
+      lastPing.textContent = 'Última atualização: ' + new Date().toLocaleString();
+
+      // detect new
+      if (alerts.length > lastCount){
+        const last = alerts[alerts.length-1];
+        const h = hashAlert(last);
+        if (h !== lastHash){
+          lastHash = h;
+          // try play siren
+          try{
+            siren.currentTime = 0;
+            await siren.play();
+          }catch(e){
+            // some browsers require user interaction; show hint
+            console.log('Siren blocked:', e);
+          }
+        }
+      }
+      lastCount = alerts.length;
+      render(alerts);
+
+      // Sirene toca enquanto existir alerta ABERTO
+      const openNow = hasOpen(alerts);
+      if(openNow){
+        try{
+          if(siren.paused){ siren.currentTime = 0; await siren.play(); }
+        }catch(e){ console.log('Siren blocked:', e); }
+      }else{
+        try{ siren.pause(); siren.currentTime = 0; }catch(e){}
+      }
+
+    }catch(e){
+      lastPing.textContent = 'Erro ao atualizar: ' + e;
+    }
+  }
+
+  poll();
+  setInterval(poll, 2000);
+
+  document.getElementById('btnFull').addEventListener('click', ()=>{
+    const el = document.documentElement;
+    if (!document.fullscreenElement) el.requestFullscreen?.();
+    else document.exitFullscreen?.();
+  });
+  document.getElementById('btnReload').addEventListener('click', ()=>location.reload());
+  document.getElementById('btnClear').addEventListener('click', async ()=>{
+    if (!confirm('Limpar todos os alertas?')) return;
+    await fetch('/api/alerts', {method:'DELETE'});
+    lastCount = 0; lastHash = '';
+    await poll();
+  });
+
+  // first user interaction unlock audio on mobile
+  document.addEventListener('click', async ()=>{
+    try{ await siren.play(); siren.pause(); siren.currentTime=0; }catch(e){}
+  }, {once:true});
+</script>
+</body>
+</html>
