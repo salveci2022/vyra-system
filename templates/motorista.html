@@ -59,6 +59,14 @@
     }
     .occ-note{opacity:.8;font-size:.9rem;margin-top:6px}
     .sr-only{position:absolute;left:-10000px;top:auto;width:1px;height:1px;overflow:hidden;}
+
+    /* Centralização real do botão de pânico (principalmente no celular) */
+    .sos-card{display:flex;flex-direction:column;}
+    .sos-stage{display:flex;align-items:center;justify-content:center;flex:1;}
+    /* Em telas menores, deixe o botão no meio da tela */
+    @media (max-width: 960px){
+      .sos-card{min-height: 75vh;}
+    }
   </style>
 </head>
 <body class="aurora-bg">
@@ -112,10 +120,10 @@
         </div>
       </section>
 
-      <section class="card">
+      <section class="card sos-card">
         <h2>Botão de Pânico</h2>
 
-        <div class="center">
+        <div class="sos-stage">
           <button class="sos" id="btnSOS">SOS</button>
         </div>
 

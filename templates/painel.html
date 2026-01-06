@@ -15,6 +15,11 @@
     .alert .meta{opacity:.85;font-size:.95rem}
     .alert .big{font-size:1.2rem;font-weight:800}
     .mono{font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;}
+
+    /* Mapa dentro do card do alerta */
+    .mapbox{margin-top:10px;border:1px solid rgba(255,255,255,.10);border-radius:16px;overflow:hidden;background:rgba(0,0,0,.20)}
+    .mapbox iframe{width:100%;height:220px;border:0;display:block}
+    .map-actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:10px}
   </style>
 </head>
 <body class="aurora-bg">
@@ -68,6 +73,13 @@
     return (a.ts||'')+'|'+(a.occurrence||'')+'|'+(a.driver_name||'')+'|'+(a.lat||'')+'|'+(a.lng||'');
   }
 
+  function mapsUrls(lat, lng){
+    const q = encodeURIComponent(`${lat},${lng}`);
+    const open = `https://www.google.com/maps?q=${q}`;
+    const embed = `https://www.google.com/maps?q=${q}&z=16&output=embed`;
+    return {open, embed};
+  }
+
   function render(alerts){
     alertsBox.innerHTML = '';
     const reversed = [...alerts].slice().reverse();
@@ -75,12 +87,27 @@
       const div = document.createElement('div');
       div.className = 'alert';
       const status = (a.status || 'open');
-      const coords = (a.lat!=null && a.lng!=null) ? `${a.lat}, ${a.lng} (±${a.accuracy||0}m)` : 'Sem localização';
+      const hasLoc = (a.lat!=null && a.lng!=null);
+      const coords = hasLoc ? `${a.lat}, ${a.lng} (±${a.accuracy||0}m)` : 'Sem localização';
+      const maps = hasLoc ? mapsUrls(a.lat, a.lng) : null;
       div.innerHTML = `
         <div class="big">🚨 ${a.occurrence || 'Alerta'}</div>
         <div class="meta">👤 Motorista: <strong>${(a.driver_name||'—')}</strong></div>
         <div class="meta">🕒 ${a.ts || ''}</div>
         <div class="meta">📍 ${coords}</div>
+        ${hasLoc ? `
+          <div class="mapbox" aria-label="Mapa da localização">
+            <iframe
+              src="${maps.embed}"
+              loading="lazy"
+              referrerpolicy="no-referrer-when-downgrade"
+              allowfullscreen
+            ></iframe>
+          </div>
+          <div class="map-actions">
+            <a class="btn" href="${maps.open}" target="_blank" rel="noopener noreferrer">🗺️ Abrir no Google Maps</a>
+          </div>
+        ` : ''}
         <div class="hr"></div>
         <div class="row">
           <button class="btn ok" onclick="ackAlert(${a.id || 0}, 'ack')">Confirmar atendimento</button>
